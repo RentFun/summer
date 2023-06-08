@@ -56,4 +56,5 @@ interface IRentFun {
 
     function isRented(address collection, uint256 tokenId) external view returns (bool);
     function getAliveRentals(address renter, address contract_) external view returns (Rental[] memory aliveRentals);
+    function getRentOrders(address lender) external view returns (RentOrder[] memory orders);
 }

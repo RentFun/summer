@@ -11,7 +11,7 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
-
+import "hardhat/console.sol";
 
 contract RentFun is Ownable, IRentFun, IVaultCreator {
     using SafeMath for uint256;
@@ -20,14 +20,16 @@ contract RentFun is Ownable, IRentFun, IVaultCreator {
     using EnumerableSet for EnumerableSet.Bytes32Set;
     using EnumerableSet for EnumerableSet.UintSet;
 
-    address private constant WonderBird = 0x1e18eAC63028C7696e6915B8ca7e066E24FF536a;
+    address private treasure;
+    address private wonderBird;
     uint16 public commission = 1000;
     uint16 public vipCommission = 800;
     uint16 private constant commissionBase = 10000;
-    address private treasure = 0x3353b44be83197747eB6a4b3B9d2e391c2A357d5;
     uint256 private constant Hour = 3600;
     uint256 private constant Day = 86400;
     uint256 private constant Week = 604800;
+    uint256 private constant DayHours = 24;
+    uint256 private constant WeekHours = 168;
 
     mapping(address => EnumerableSet.AddressSet) private vaults;
 
@@ -70,7 +72,7 @@ contract RentFun is Ownable, IRentFun, IVaultCreator {
     }
 
     /// @notice Emitted on each token lent
-    event TokenLent(address indexed depositer, address indexed collection, uint256 tokenId, uint256 amount);
+    event TokenLent(address indexed lender, address indexed collection, uint256 tokenId, uint256 amount);
 
     /// @notice Emitted on each token rental
     event TokenRented(address indexed renter, address indexed collection,
@@ -79,13 +81,15 @@ contract RentFun is Ownable, IRentFun, IVaultCreator {
     /// @notice Emitted on each token lent cancel
     event LentCanceled(address indexed lender, address indexed collection, uint256 tokenId);
 
-    constructor(address contractOwner) {
+    constructor(address contractOwner, address treasure_, address wonderBird_) {
         _transferOwnership(contractOwner);
+        treasure = treasure_;
+        wonderBird = wonderBird_;
     }
 
     function lend(LendData[] calldata lents) external override {
         uint256 len = lents.length;
-        if (len == 0) revert("RF");
+        if (len == 0) revert("RF01");
 
         for (uint8 i = 0; i < len; i++) {
             LendBid calldata bid = lents[i].lendBid;
@@ -93,12 +97,11 @@ contract RentFun is Ownable, IRentFun, IVaultCreator {
             address clc = token.collection;
             uint256 tokenId = token.tokenId;
             bytes32 tokenHash = getTokenHash(clc, tokenId);
-            require(rentals[rentalIdxes[tokenHash]].endTime < block.timestamp, "RF");
-            require(token.amount == 0 && token.vault != address(0) &&
-                bid.dayDiscount < commissionBase && bid.weekDiscount < commissionBase, "RF");
+            require(token.lender == msg.sender && vaults[msg.sender].contains(token.vault), "RF02");
+            require(token.amount == 0 && bid.dayDiscount < commissionBase && bid.weekDiscount < commissionBase, "RF03");
             require((bid.payment == address(0) && clcPayments[clc].length() == 0) ||
-                clcPayments[clc].contains(bid.payment), "RF");
-            require(token.maxEndTime == 0 || token.maxEndTime > block.timestamp, "RF");
+                clcPayments[clc].contains(bid.payment), "RF04");
+            require(token.maxEndTime == 0 || token.maxEndTime > block.timestamp, "RF05");
 
             if (IERC721(clc).ownerOf(tokenId) != token.vault) {
                 IERC721(clc).safeTransferFrom(msg.sender, token.vault, tokenId);
@@ -113,24 +116,24 @@ contract RentFun is Ownable, IRentFun, IVaultCreator {
 
     function rent(RentBid[] calldata rents) external payable override {
         uint256 len = rents.length;
-        if (len == 0) revert("RF");
+        if (len == 0) revert("RF06");
         for (uint8 i = 0; i < len; i++) {
             RentBid calldata rentBid = rents[i];
-            require(rentBid.timeAmount > 0, "RF");
             address clc = rentBid.collection;
             uint256 tokenId = rentBid.tokenId;
             bytes32 tokenHash = getTokenHash(clc, tokenId);
             bytes32 paymentHash = getPaymentHash(clc, tokenId, rentBid.payment);
             LendToken memory token = lendTokens[tokenHash];
-            require(!cancellations.contains(tokenHash), "RF");
-            require(token.vault == IERC721(clc).ownerOf(tokenId), "RF");
-            require(rentBid.payment == lendBids[paymentHash].payment, "RF");
+            require(rentBid.timeAmount > 0 && rentBid.tokenAmount <= token.amount , "RF07");
+            require(!cancellations.contains(tokenHash), "RF08");
+            require(token.vault == IERC721(clc).ownerOf(tokenId), "RF09");
+            require(rentBid.payment == lendBids[paymentHash].payment, "RF10");
             uint rentalFee;
             uint256 endTime;
             (rentalFee, endTime) = calculateRentFee(rentBid.timeBase, rentBid.timeAmount, lendBids[paymentHash]);
             uint256 startTime = block.timestamp;
             endTime = endTime.add(startTime);
-            require(token.maxEndTime == 0 || token.maxEndTime >= endTime, "RF");
+            require(token.maxEndTime == 0 || token.maxEndTime >= endTime, "RF11");
             _pay(rentBid.payment, msg.sender, address(this), rentalFee);
             rentals[++totalRentCount] = Rental(msg.sender, token.vault, clc,
                 tokenId, token.amount, startTime, endTime);
@@ -138,26 +141,24 @@ contract RentFun is Ownable, IRentFun, IVaultCreator {
             rentOrders[totalRentCount] = RentOrder(rentBid, startTime, rentalFee);
             rentalsByAddr[msg.sender][clc].add(totalRentCount);
             rentOrdersByAddr[token.lender].add(totalRentCount);
-            // todo
 
             emit TokenRented(msg.sender, clc, tokenId, startTime, endTime);
         }
-
     }
 
     function cancelLend(bytes32[] calldata tokenHashes) external override {
         uint256 len = tokenHashes.length;
-        if (len == 0) revert("RF");
+        if (len == 0) revert("RF12");
         for (uint8 i = 0; i < len; i++) {
             LendToken memory token = lendTokens[tokenHashes[i]];
-            require(token.lender == msg.sender, "RF");
+            require(token.lender == msg.sender, "RF13");
             cancellations.add(tokenHashes[i]);
             emit LentCanceled(msg.sender, token.collection, token.tokenId);
         }
     }
 
     function claimRentFee(uint256 wbId) external override {
-        uint256 cms = IERC721(WonderBird).ownerOf(wbId) == msg.sender ? vipCommission : commission;
+        uint256 cms = IERC721(wonderBird).ownerOf(wbId) == msg.sender ? vipCommission : commission;
         uint256[] memory orderIdxes = rentOrdersByAddr[msg.sender].values();
         for (uint8 i = 0; i < orderIdxes.length; i++) {
             RentOrder memory order = rentOrders[orderIdxes[i]];
@@ -166,9 +167,8 @@ contract RentFun is Ownable, IRentFun, IVaultCreator {
             uint256 ptnFee = cmsFee.mul(ptn.share).div(commissionBase);
             _pay(order.rentBid.payment, address(this), msg.sender, order.totalFee.sub(cmsFee));
             _pay(order.rentBid.payment, address(this), ptn.receiver, ptnFee);
-            _pay(order.rentBid.payment, address(this), treasure, cmsFee);
+            _pay(order.rentBid.payment, address(this), treasure, cmsFee.sub(ptnFee));
             rentOrdersByAddr[msg.sender].remove(orderIdxes[i]);
-            // todo
         }
     }
 
@@ -194,20 +194,29 @@ contract RentFun is Ownable, IRentFun, IVaultCreator {
         }
     }
 
+    function getRentOrders(address lender) public override view returns (RentOrder[] memory orders) {
+        uint256[] memory orderIdxes = rentOrdersByAddr[lender].values();
+        if (orderIdxes.length == 0) return orders;
+        orders = new RentOrder[](orderIdxes.length);
+        for(uint i = 0; i < orderIdxes.length; i++) {
+            orders[i] = rentOrders[orderIdxes[i]];
+        }
+    }
+
     function getVaults(address owner) public override view returns (address[] memory result) {
         return vaults[owner].values();
     }
 
     /// @notice create a vault contract for each owner
     function createVault() external override {
-        require(vaults[msg.sender].length() == 0, "RF");
+        require(vaults[msg.sender].length() == 0, "RF14");
         Vault vlt = new Vault(address(this));
         vlt.transferOwnership(msg.sender);
         vaults[msg.sender].add(address(vlt));
     }
 
     function setPartner(address collection, address receiver, uint16 share, address[] calldata payments) external onlyOwner {
-        require(share <= commissionBase, "Partner commission too big");
+        require(share <= commissionBase, "RF15");
         partners[collection] = Partner(receiver, share);
 
         for (uint8 i = 0; i < payments.length; i++) {
@@ -217,7 +226,7 @@ contract RentFun is Ownable, IRentFun, IVaultCreator {
 
     /// @notice Commission setter
     function setCommission(uint16 commission_) external onlyOwner {
-        require(commission_ <= commissionBase, "Commission too big");
+        require(commission_ <= commissionBase, "RF16");
         commission = commission_;
     }
 
@@ -226,8 +235,8 @@ contract RentFun is Ownable, IRentFun, IVaultCreator {
         treasure = treasure_;
     }
 
-    function setVipDiscount(uint16 vipCommission_) external onlyOwner {
-        require(vipCommission_ <= commission, "RF");
+    function setVipCommission(uint16 vipCommission_) external onlyOwner {
+        require(vipCommission_ <= commission, "RF17");
         vipCommission = vipCommission_;
     }
 
@@ -237,7 +246,11 @@ contract RentFun is Ownable, IRentFun, IVaultCreator {
         if (payment == address(0)) {
             _payEther(payable(to), amount);
         } else {
-            ERC20(payment).safeTransferFrom(from, to, amount);
+            if (from == address(this)) {
+                ERC20(payment).transfer(to, amount);
+            } else {
+                ERC20(payment).safeTransferFrom(from, to, amount);
+            }
         }
     }
 
@@ -261,17 +274,19 @@ contract RentFun is Ownable, IRentFun, IVaultCreator {
     function calculateRentFee(uint8 timeBase, uint8 amount, LendBid memory lendBid) private pure returns (uint256 price, uint256 duration) {
         if (timeBase == 1) {
             price = lendBid.fee;
-            duration = Hour.mul(amount);
+            duration = Hour;
         } else if (timeBase == 2) {
-            price = lendBid.fee.mul(commissionBase - lendBid.dayDiscount).div(commissionBase);
-            duration = Day.mul(amount);
+            price = lendBid.fee.mul(DayHours).mul(commissionBase - lendBid.dayDiscount).div(commissionBase);
+            duration = Day;
         } else if (timeBase == 3) {
-            price = lendBid.fee.mul(commissionBase - lendBid.weekDiscount).div(commissionBase);
-            duration = Week.mul(amount);
+            price = lendBid.fee.mul(WeekHours).mul(commissionBase - lendBid.weekDiscount).div(commissionBase);
+            duration = Week;
         } else {
-            revert("RF");
+            revert("RF18");
         }
 
-        return (price.mul(amount), duration);
+        return (price.mul(amount), duration.mul(amount));
     }
+
+    receive() external payable {}
 }
