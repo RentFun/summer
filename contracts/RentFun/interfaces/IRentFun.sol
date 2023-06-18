@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-only
-pragma solidity 0.8.4;
+pragma solidity 0.8.17;
 
 interface IRentFun {
     struct Rental {
@@ -35,7 +35,10 @@ interface IRentFun {
 
     struct RentOrder {
         RentBid rentBid;
+        address renter;
+        address vault;
         uint256 startTime;
+        uint256 endTime;
         uint256 totalFee;
     }
 
@@ -51,7 +54,7 @@ interface IRentFun {
 
     function lend(LendData[] calldata lents) external;
     function rent(RentBid[] calldata rents) external payable;
-    function cancelLend(bytes32[] calldata tokenHashes) external;
+    function delist(bytes32[] calldata tokenHashes) external;
     function claimRentFee(uint256 wbId) external;
 
     function isRented(address collection, uint256 tokenId) external view returns (bool);

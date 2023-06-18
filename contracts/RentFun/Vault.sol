@@ -11,7 +11,7 @@ import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
 import "@openzeppelin/contracts/token/ERC721/utils/ERC721Holder.sol";
 
-contract Vault is Ownable, IVault, ERC721Holder {
+contract Vault is IVault, Ownable, ERC721Holder {
     address private rentFun;
 
     constructor(address rentFun_) {
