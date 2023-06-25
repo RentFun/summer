@@ -5,5 +5,4 @@ interface IVaultManager {
     function create() external;
     function getVaults(address owner) external view returns (address[] memory result);
     function isOwned(address owner, address vault) external view returns (bool);
-
 }

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-only
-pragma solidity ^0.8.4;
+pragma solidity ^0.8.17;
 
 import "./interfaces/IRentFun.sol";
 import "./interfaces/IVault.sol";

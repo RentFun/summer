@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-only
-pragma solidity ^0.8.4;
+pragma solidity ^0.8.17;
 
 import "./Vault.sol";
 import "./interfaces/IRentFun.sol";
@@ -133,6 +133,7 @@ contract RentFun is IRentFun {
         uint256 cms = hp.getCommission(wbId, msg.sender);
         uint256[] memory orderIdxes = rentalsByLender[msg.sender].values();
         for (uint8 i = 0; i < orderIdxes.length; i++) {
+            rentalsByLender[msg.sender].remove(orderIdxes[i]);
             RentOrder memory order = rentals[orderIdxes[i]];
             uint256 lenderFee;
             uint256 cmsFee;
@@ -141,7 +142,6 @@ contract RentFun is IRentFun {
             _pay(order.rentBid.payment, address(this), msg.sender, lenderFee);
             _pay(order.rentBid.payment, address(this), hp.getPatnerReceiver(order.rentBid.collection), ptnFee);
             _pay(order.rentBid.payment, address(this), hp.treasure(), cmsFee);
-            rentalsByLender[msg.sender].remove(orderIdxes[i]);
             emit Claimed(msg.sender, orderIdxes[i], lenderFee, cmsFee, ptnFee);
         }
     }

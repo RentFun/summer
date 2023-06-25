@@ -8,7 +8,7 @@ import "@openzeppelin/contracts/proxy/transparent/ProxyAdmin.sol";
  * explanation of why you would want to use this see the documentation for {TransparentUpgradeableProxy}.
  */
 contract RentFunProxyAdmin is ProxyAdmin {
-    constructor() {
-        _transferOwnership(msg.sender);
+    constructor(address owner) {
+        _transferOwnership(owner);
     }
 }
