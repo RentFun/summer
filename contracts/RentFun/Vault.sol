@@ -21,6 +21,7 @@ contract Vault is IVault, Ownable, ERC721Holder {
     function transferERC721(address collection, uint256 tokenId) external override onlyOwner {
         require(!IRentFun(rentFun).isRented(collection, tokenId), "OnRenting");
         IERC721(collection).safeTransferFrom(address(this), msg.sender, tokenId);
+        IRentFun(rentFun).afterWithdraw(address(this), msg.sender, collection, tokenId);
     }
 
     function transferERC20(address token, uint256 amount) external onlyOwner override {

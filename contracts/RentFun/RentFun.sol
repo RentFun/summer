@@ -16,6 +16,7 @@ contract RentFun is IRentFun {
     using SafeERC20 for ERC20;
     using EnumerableSet for EnumerableSet.Bytes32Set;
     using EnumerableSet for EnumerableSet.UintSet;
+    using EnumerableSet for EnumerableSet.AddressSet;
 
     address public helper;
     bool public initialized = false;
@@ -41,13 +42,19 @@ contract RentFun is IRentFun {
     /// @notice A mapping pointing renter-collection to rental indexes
     /// dev renter-collection-hash -> rentIdxes
     mapping(bytes32 => EnumerableSet.UintSet) private rentalsByRenter;
-    /// @notice A mappings pointing lender to rental indexes
-    mapping(address => EnumerableSet.UintSet) private rentalsByLender;
+    /// @notice A mappings pointing lender and payment to rental indexes
+    mapping(address => mapping(address => EnumerableSet.UintSet)) private rentalsByLender;
+    mapping(address => EnumerableSet.AddressSet) private rentalPaymentsByLender;
 
-    event Lent(address indexed lender, address indexed collection, uint256 tokenId, uint256 amount);
-    event Rented(address indexed renter, uint256 rentalIdx);
+    event Lent(address indexed lender, address indexed collection, uint256 tokenId, uint256 amount,
+        uint256 maxEndTime, address vault, address indexed payment,
+        uint256 fee, uint16 dayDiscount, uint16 weekDiscount);
+    event Rented(address indexed renter, address indexed lender, uint256 fee,
+        uint16 dayDiscount, uint16 weekDiscount, uint256 rentalIdx);
     event Delisted(address indexed lender, address indexed collection, uint256 tokenId);
-    event Claimed(address indexed lender, uint256 rentalIdx, uint256 rentFee, uint256 cmsFee, uint256 ptnFee);
+    event Claimed(address indexed lender, uint256 rentalIdx, address indexed payment, address ptnReceiver,
+        address treasure, uint256 rentFee, uint256 cmsFee, uint256 ptnFee);
+    event Withdrawed(address indexed vault, address indexed owner, address indexed collection, uint256 tokenId);
 
     constructor() {
         helper = address(0);
@@ -84,7 +91,8 @@ contract RentFun is IRentFun {
             cancellations.remove(tokenHash);
             lendTokens[tokenHash] = token;
             lendBids[hp.getPaymentHash(clc, tokenId, bid.payment)] = bid;
-            emit Lent(msg.sender, clc, tokenId, token.amount);
+
+            emit Lent(msg.sender, clc, tokenId, token.amount, token.maxEndTime, token.vault, bid.payment, bid.fee, bid.dayDiscount, bid.weekDiscount);
         }
     }
 
@@ -111,9 +119,11 @@ contract RentFun is IRentFun {
             rentals[++totalRentCount] = RentOrder(rentBid, msg.sender, token.vault, block.timestamp, endTime, rentalFee);
             rentalIdxes[tokenHash] = totalRentCount;
             rentalsByRenter[hp.getRenterCollection(msg.sender, rentBid.collection)].add(totalRentCount);
-            rentalsByLender[token.lender].add(totalRentCount);
+            rentalsByLender[token.lender][rentBid.payment].add(totalRentCount);
+            rentalPaymentsByLender[token.lender].add(rentBid.payment);
 
-            emit Rented(msg.sender, totalRentCount);
+            emit Rented(msg.sender, token.lender, lendBids[paymentHash].fee,
+                lendBids[paymentHash].dayDiscount, lendBids[paymentHash].weekDiscount, totalRentCount);
         }
     }
 
@@ -128,22 +138,35 @@ contract RentFun is IRentFun {
         }
     }
 
-    function claimRentFee(uint256 wbId) external override {
+    function claimRentFee(uint256 wbId, address payment) external override {
         RentFunHelper hp = RentFunHelper(helper);
         uint256 cms = hp.getCommission(wbId, msg.sender);
-        uint256[] memory orderIdxes = rentalsByLender[msg.sender].values();
+
+        uint256 totalLenderFee = 0;
+        uint256 totalCmsFee = 0;
+        uint256[] memory orderIdxes = rentalsByLender[msg.sender][payment].values();
         for (uint8 i = 0; i < orderIdxes.length; i++) {
-            rentalsByLender[msg.sender].remove(orderIdxes[i]);
+            rentalsByLender[msg.sender][payment].remove(orderIdxes[i]);
             RentOrder memory order = rentals[orderIdxes[i]];
-            uint256 lenderFee;
-            uint256 cmsFee;
+            uint256 lenderFee = 0;
+            uint256 cmsFee = 0;
             uint256 ptnFee;
             (lenderFee, ptnFee, cmsFee) = hp.calculateRentFee(order.rentBid.collection, order.totalFee, cms);
-            _pay(order.rentBid.payment, address(this), msg.sender, lenderFee);
-            _pay(order.rentBid.payment, address(this), hp.getPatnerReceiver(order.rentBid.collection), ptnFee);
-            _pay(order.rentBid.payment, address(this), hp.treasure(), cmsFee);
-            emit Claimed(msg.sender, orderIdxes[i], lenderFee, cmsFee, ptnFee);
+            totalLenderFee += lenderFee;
+            totalCmsFee += cmsFee;
+            address ptnReceiver = hp.getPatnerReceiver(order.rentBid.collection);
+            if (ptnReceiver != address(0)) {
+                _pay(payment, address(this), ptnReceiver, ptnFee);
+            }
+            emit Claimed(msg.sender, orderIdxes[i], payment, ptnReceiver,
+                hp.treasure(), lenderFee, ptnFee, cmsFee);
         }
+        _pay(payment, address(this), msg.sender, totalLenderFee);
+        _pay(payment, address(this), hp.treasure(), totalCmsFee);
+    }
+
+    function afterWithdraw(address vault, address owner, address collection, uint256 tokenId) external override {
+        emit Withdrawed(vault, owner, collection, tokenId);
     }
 
     /// @notice check if a given token is rented or not
@@ -173,12 +196,26 @@ contract RentFun is IRentFun {
         }
     }
 
+    function getRentOrder (uint256 idx) public view returns (RentOrder memory order) {
+        return rentals[idx];
+    }
+
     function getRentOrders(address lender) public override view returns (RentOrder[] memory orders) {
-        uint256[] memory orderIdxes = rentalsByLender[lender].values();
-        if (orderIdxes.length == 0) return orders;
-        orders = new RentOrder[](orderIdxes.length);
-        for(uint i = 0; i < orderIdxes.length; i++) {
-            orders[i] = rentals[orderIdxes[i]];
+        address[] memory payments = rentalPaymentsByLender[msg.sender].values();
+        uint256 totalLen = 0;
+        for (uint i = 0; i < payments.length; i++) {
+            totalLen += rentalsByLender[lender][payments[i]].length();
+        }
+
+        if (totalLen == 0) return orders;
+        orders = new RentOrder[](totalLen);
+
+        uint k = 0;
+        for (uint i = 0; i < payments.length; i++) {
+            uint256[] memory orderIdxes = rentalsByLender[lender][payments[i]].values();
+            for(uint j = 0; j < orderIdxes.length; j++) {
+                orders[k++] = rentals[orderIdxes[j]];
+            }
         }
     }
 
@@ -202,4 +239,6 @@ contract RentFun is IRentFun {
         (bool sent,) = recipient.call{value: amount}("");
         require(sent, "SEND_ETHER_FAILED");
     }
+
+    receive() external payable {}
 }

@@ -55,7 +55,8 @@ interface IRentFun {
     function lend(LendData[] calldata lents) external;
     function rent(RentBid[] calldata rents) external payable;
     function delist(bytes32[] calldata tokenHashes) external;
-    function claimRentFee(uint256 wbId) external;
+    function claimRentFee(uint256 wbId, address payment) external;
+    function afterWithdraw(address vault, address owner, address collection, uint256 tokenId) external;
 
     function isRented(address collection, uint256 tokenId) external view returns (bool);
     function getAliveRentals(address renter, address contract_) external view returns (Rental[] memory aliveRentals);
