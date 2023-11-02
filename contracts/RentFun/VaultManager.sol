@@ -60,8 +60,4 @@ contract VaultManager is IVaultManager, Ownable {
     function setRentfun(address rentfun_) external onlyOwner {
         rentfun = rentfun_;
     }
-
-    function isRented(address collection, uint256 tokenId) public view returns (bool) {
-        return IRentFun(rentfun).isRented(collection, tokenId);
-    }
 }
