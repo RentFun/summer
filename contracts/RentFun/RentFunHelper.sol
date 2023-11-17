@@ -81,7 +81,7 @@ contract RentFunHelper is Ownable {
             price = fee * WeekHours * (cmsBase - weekDiscount) / cmsBase;
             endTime = Week;
         } else {
-            revert("RF18");
+            revert("Time base unsupported");
         }
 
         return (price * amount, endTime * amount+block.timestamp);
@@ -97,7 +97,7 @@ contract RentFunHelper is Ownable {
     }
 
     function setPartner(address collection, address receiver, uint16 share, address[] calldata payments) external onlyOwner {
-        require(share <= cmsBase, "RF15");
+        require(share <= cmsBase, "Patner commission too big");
         partners[collection] = Partner(receiver, share);
 
         for (uint8 i = 0; i < payments.length; i++) {
@@ -107,13 +107,13 @@ contract RentFunHelper is Ownable {
 
     /// @notice Commission setter
     function setCommission(uint16 commission_) external onlyOwner {
-        require(commission_ <= cmsBase, "RF16");
+        require(commission_ <= cmsBase, "Commission too big");
         commission = commission_;
     }
 
 
     function setVipCommission(uint16 vipCommission_) external onlyOwner {
-        require(vipCommission_ <= commission, "RF17");
+        require(vipCommission_ <= commission, "Vip commission too big");
         vipCommission = vipCommission_;
     }
 
@@ -132,15 +132,15 @@ contract RentFunHelper is Ownable {
 
     /// @dev Helper function to compute hash for a given token
     function getTokenHash(address collection, uint256 tokenId) public pure returns (bytes32) {
-        return keccak256(abi.encodePacked(collection,  tokenId));
+        return keccak256(abi.encode(collection,  tokenId));
     }
 
     /// @dev Helper function to compute hash for a given token with a payment
     function getPaymentHash(address collection, uint256 tokenId, address payment) public pure returns (bytes32) {
-        return keccak256(abi.encodePacked(collection,  tokenId, payment));
+        return keccak256(abi.encode(collection,  tokenId, payment));
     }
 
     function getRenterCollection(address renter, address collection) public pure returns (bytes32) {
-        return keccak256(abi.encodePacked(renter,  collection));
+        return keccak256(abi.encode(renter,  collection));
     }
 }

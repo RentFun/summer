@@ -69,7 +69,7 @@ contract RentFun is IRentFun {
 
     function lend(LendData[] calldata lents) external override {
         uint256 len = lents.length;
-        if (len == 0) revert("RF01");
+        if (len == 0) revert("LendData: length was 0");
 
         RentFunHelper hp = RentFunHelper(helper);
 
@@ -79,10 +79,10 @@ contract RentFun is IRentFun {
             address clc = token.collection;
             uint256 tokenId = token.tokenId;
             bytes32 tokenHash = hp.getTokenHash(clc, tokenId);
-            require(token.lender == msg.sender && IVaultManager(hp.vaultManager()).isOwned(msg.sender, token.vault), "RF02");
-            require(token.amount == 0 && hp.checkDiscount(bid.dayDiscount) && hp.checkDiscount(bid.weekDiscount), "RF03");
-            require(hp.checkPayment(clc, bid.payment), "RF04");
-            require(token.maxEndTime == 0 || token.maxEndTime > block.timestamp, "RF05");
+            require(token.lender == msg.sender && IVaultManager(hp.vaultManager()).isOwned(msg.sender, token.vault), "Lender or vault mismatch");
+            require(token.amount == 0 && hp.checkDiscount(bid.dayDiscount) && hp.checkDiscount(bid.weekDiscount), "Token amount was not 0 or invalid discount");
+            require(hp.checkPayment(clc, bid.payment), "Payment unsupported");
+            require(token.maxEndTime == 0 || token.maxEndTime > block.timestamp, "Invalid maxEndTime");
 
             if (IERC721(clc).ownerOf(tokenId) != token.vault) {
                 IERC721(clc).safeTransferFrom(msg.sender, token.vault, tokenId);
@@ -98,23 +98,25 @@ contract RentFun is IRentFun {
 
     function rent(RentBid[] calldata rents) external payable override {
         uint256 len = rents.length;
-        if (len == 0) revert("RF06");
+        if (len == 0) revert("RendData: length was 0");
 
         RentFunHelper hp = RentFunHelper(helper);
         for (uint8 i = 0; i < len; i++) {
             RentBid calldata rentBid = rents[i];
             bytes32 tokenHash = hp.getTokenHash(rentBid.collection, rentBid.tokenId);
+            uint256 rentalIdx = rentalIdxes[tokenHash];
+            require(rentals[rentalIdx].endTime < block.timestamp, "Token is on renting");
             bytes32 paymentHash = hp.getPaymentHash(rentBid.collection, rentBid.tokenId, rentBid.payment);
             LendToken memory token = lendTokens[tokenHash];
-            require(rentBid.timeAmount > 0 && rentBid.tokenAmount <= token.amount , "RF07");
-            require(!cancellations.contains(tokenHash), "RF08");
-            require(token.vault == IERC721(rentBid.collection).ownerOf(rentBid.tokenId), "RF09");
-            require(rentBid.payment == lendBids[paymentHash].payment, "RF10");
+            require(rentBid.timeAmount > 0 && rentBid.tokenAmount <= token.amount, "Invalid time amount or token amount");
+            require(!cancellations.contains(tokenHash), "NFT has been delisted");
+            require(token.vault == IERC721(rentBid.collection).ownerOf(rentBid.tokenId), "NFT is not in the vault");
+            require(rentBid.payment == lendBids[paymentHash].payment, "Payment mismatch");
             uint256 rentalFee;
             uint256 endTime;
             (rentalFee, endTime) = hp.totalRentFee(rentBid.timeBase, rentBid.timeAmount,
                 lendBids[paymentHash].fee, lendBids[paymentHash].dayDiscount, lendBids[paymentHash].weekDiscount);
-            require(token.maxEndTime == 0 || token.maxEndTime >= endTime, "RF11");
+            require(token.maxEndTime == 0 || token.maxEndTime >= endTime, "Invalid max end time");
             _pay(rentBid.payment, msg.sender, address(this), rentalFee);
             rentals[++totalRentCount] = RentOrder(rentBid, msg.sender, token.vault, block.timestamp, endTime, rentalFee);
             rentalIdxes[tokenHash] = totalRentCount;
@@ -129,10 +131,10 @@ contract RentFun is IRentFun {
 
     function delist(bytes32[] calldata tokenHashes) external override {
         uint256 len = tokenHashes.length;
-        if (len == 0) revert("RF12");
+        if (len == 0) revert("CancelData: length was 0");
         for (uint8 i = 0; i < len; i++) {
             LendToken memory token = lendTokens[tokenHashes[i]];
-            require(token.lender == msg.sender, "RF13");
+            require(token.lender == msg.sender, "NFT can only be cancelled by the lender");
             cancellations.add(tokenHashes[i]);
             emit Delisted(msg.sender, token.collection, token.tokenId);
         }

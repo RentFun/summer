@@ -19,6 +19,7 @@ contract VaultManager is IVaultManager, Ownable {
 
     event VaultCreated(address indexed vault, address indexed owner);
     event VaultRemoved(address indexed vault, address indexed owner);
+    event MaxVaultNumUpdated(uint256 oldMaxVaultNum, uint256 newMaxVaultNum);
 
     constructor() {
         _transferOwnership(address(0));
@@ -32,7 +33,7 @@ contract VaultManager is IVaultManager, Ownable {
     }
 
     function create() external override {
-        require(vaults[msg.sender].length() < maxVaultNum, "RF14");
+        require(vaults[msg.sender].length() < maxVaultNum, "Too many vaults");
         Vault vlt = new Vault(rentfun);
         vlt.transferOwnership(msg.sender);
         vaults[msg.sender].add(address(vlt));
@@ -54,7 +55,9 @@ contract VaultManager is IVaultManager, Ownable {
     }
 
     function setMaxVaultNum(uint256 maxVaultNum_) external onlyOwner {
+        uint256 old = maxVaultNum;
         maxVaultNum = maxVaultNum_;
+        emit MaxVaultNumUpdated(old, maxVaultNum);
     }
 
     function setRentfun(address rentfun_) external onlyOwner {
