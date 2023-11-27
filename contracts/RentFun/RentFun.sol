@@ -11,8 +11,9 @@ import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
-contract RentFun is IRentFun {
+contract RentFun is IRentFun, ReentrancyGuard {
     using SafeERC20 for ERC20;
     using EnumerableSet for EnumerableSet.Bytes32Set;
     using EnumerableSet for EnumerableSet.UintSet;
@@ -67,7 +68,7 @@ contract RentFun is IRentFun {
         helper = helper_;
     }
 
-    function lend(LendData[] calldata lents) external override {
+    function lend(LendData[] calldata lents) external override nonReentrant {
         uint256 len = lents.length;
         if (len == 0) revert("LendData: length was 0");
 
@@ -96,7 +97,7 @@ contract RentFun is IRentFun {
         }
     }
 
-    function rent(RentBid[] calldata rents) external payable override {
+    function rent(RentBid[] calldata rents) external payable override nonReentrant {
         uint256 len = rents.length;
         if (len == 0) revert("RendData: length was 0");
 
@@ -140,7 +141,7 @@ contract RentFun is IRentFun {
         }
     }
 
-    function claimRentFee(uint256 wbId, address payment) external override {
+    function claimRentFee(uint256 wbId, address payment) external override nonReentrant {
         RentFunHelper hp = RentFunHelper(helper);
         uint256 cms = hp.getCommission(wbId, msg.sender);
 
@@ -157,11 +158,11 @@ contract RentFun is IRentFun {
             totalLenderFee += lenderFee;
             totalCmsFee += cmsFee;
             address ptnReceiver = hp.getPatnerReceiver(order.rentBid.collection);
-            if (ptnReceiver != address(0)) {
+            if (ptnReceiver != address(0) && ptnFee > 0) {
                 _pay(payment, address(this), ptnReceiver, ptnFee);
+                emit Claimed(msg.sender, orderIdxes[i], payment, ptnReceiver,
+                    hp.treasure(), lenderFee, ptnFee, cmsFee);
             }
-            emit Claimed(msg.sender, orderIdxes[i], payment, ptnReceiver,
-                hp.treasure(), lenderFee, ptnFee, cmsFee);
         }
         _pay(payment, address(this), msg.sender, totalLenderFee);
         _pay(payment, address(this), hp.treasure(), totalCmsFee);
