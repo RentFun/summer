@@ -112,11 +112,13 @@ contract RentFun is IRentFun, ReentrancyGuard {
             require(rentBid.timeAmount > 0 && rentBid.tokenAmount <= token.amount, "Invalid time amount or token amount");
             require(!cancellations.contains(tokenHash), "NFT has been delisted");
             require(token.vault == IERC721(rentBid.collection).ownerOf(rentBid.tokenId), "NFT is not in the vault");
-            require(rentBid.payment == lendBids[paymentHash].payment, "Payment mismatch");
+            LendBid memory lendBid = lendBids[paymentHash];
+            require(rentBid.payment == lendBid.payment, "Payment mismatch");
+            require(rentBid.fee == lendBid.fee, "Unit price mismatch");
             uint256 rentalFee;
             uint256 endTime;
             (rentalFee, endTime) = hp.totalRentFee(rentBid.timeBase, rentBid.timeAmount,
-                lendBids[paymentHash].fee, lendBids[paymentHash].dayDiscount, lendBids[paymentHash].weekDiscount);
+                lendBid.fee, lendBid.dayDiscount, lendBid.weekDiscount);
             require(token.maxEndTime == 0 || token.maxEndTime >= endTime, "Invalid max end time");
             _pay(rentBid.payment, msg.sender, address(this), rentalFee);
             rentals[++totalRentCount] = RentOrder(rentBid, msg.sender, token.vault, block.timestamp, endTime, rentalFee);
@@ -125,8 +127,7 @@ contract RentFun is IRentFun, ReentrancyGuard {
             rentalsByLender[token.lender][rentBid.payment].add(totalRentCount);
             rentalPaymentsByLender[token.lender].add(rentBid.payment);
 
-            emit Rented(msg.sender, token.lender, lendBids[paymentHash].fee,
-                lendBids[paymentHash].dayDiscount, lendBids[paymentHash].weekDiscount, totalRentCount);
+            emit Rented(msg.sender, token.lender, lendBid.fee, lendBid.dayDiscount, lendBid.weekDiscount, totalRentCount);
         }
     }
 

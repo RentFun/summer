@@ -47,6 +47,7 @@ interface IRentFun {
         address collection;
         uint256 tokenId;
         address payment;
+        uint256 fee;
         uint256 tokenAmount;
         uint8 timeBase;
         uint8 timeAmount;
